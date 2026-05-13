@@ -1,0 +1,99 @@
+/* ── Base ── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #f0f2f5;
+    color: #212529;
+    min-height: 100vh;
+}
+
+/* ── Layout ── */
+.app-wrapper { display: flex; flex-direction: column; min-height: 100vh; }
+
+.app-header {
+    background: #1a1d23;
+    color: #fff;
+    padding: 0 1.5rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    position: sticky; top: 0; z-index: 100;
+}
+
+.header-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 56px;
+}
+
+.brand { display: flex; align-items: center; gap: 0.5rem; }
+.brand-icon { font-size: 1.4rem; }
+.brand-name { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.02em; }
+
+.header-nav .nav-link {
+    color: rgba(255,255,255,0.75);
+    font-size: 0.9rem;
+    text-decoration: none;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+.header-nav .nav-link:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+.app-main { flex: 1; padding: 1.5rem 0; }
+
+.app-footer {
+    background: #1a1d23;
+    color: rgba(255,255,255,0.5);
+    text-align: center;
+    font-size: 0.8rem;
+    padding: 0.75rem;
+}
+
+/* ── Page header ── */
+.page-title { font-size: 1.6rem; font-weight: 700; color: #1a1d23; }
+
+/* ── Cards ── */
+.card { border: none; border-radius: 10px; }
+.card-header.section-header {
+    background: #1a1d23;
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.9rem;
+    letter-spacing: 0.03em;
+    border-radius: 10px 10px 0 0 !important;
+    padding: 0.6rem 1rem;
+}
+
+/* ── Stat cards ── */
+.stat-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    height: 100%;
+}
+.stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: #6c757d; margin-bottom: 0.25rem; }
+.stat-value { font-size: 1.45rem; font-weight: 700; color: #1a1d23; line-height: 1.2; }
+.stat-sub { font-size: 0.75rem; margin-top: 0.2rem; color: #495057; }
+
+.stat-card-good { border-left: 4px solid #198754; }
+.stat-card-good .stat-value { color: #198754; }
+
+.stat-card-warn { border-left: 4px solid #ffc107; }
+.stat-card-warn .stat-value { color: #856404; }
+
+/* ── Table tweaks ── */
+.table th { white-space: nowrap; font-size: 0.82rem; }
+.table td { font-size: 0.82rem; vertical-align: middle; }
+
+/* ── Buttons ── */
+.btn-sm { font-size: 0.82rem; }
+
+/* ── Canvas ── */
+canvas { max-height: 320px; }
+
+/* ── Responsive ── */
+@media (max-width: 576px) {
+    .page-title { font-size: 1.2rem; }
+    .stat-value { font-size: 1.1rem; }
+}

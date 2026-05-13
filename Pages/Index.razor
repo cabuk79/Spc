@@ -1,0 +1,543 @@
+@page "/"
+@inject SpcCalculationService SpcCalc
+@inject ExcelImportService ExcelImport
+@inject IJSRuntime JS
+
+<PageTitle>SPC Chart Manager</PageTitle>
+
+<div class="container-fluid px-4 py-3" id="spc-report">
+
+    <!-- ═══════════════════════ HEADER ═══════════════════════ -->
+    <div class="page-header mb-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h1 class="page-title mb-0">Statistical Process Control</h1>
+                <p class="text-muted small mb-0">Upload measurement data, analyse process capability and view SPC charts</p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="DownloadTemplate" title="Download Excel template">
+                    <i class="bi bi-download me-1"></i> Excel Template
+                </button>
+                <button class="btn btn-outline-primary btn-sm" @onclick="TriggerLoadJson" title="Open saved JSON">
+                    <i class="bi bi-folder2-open me-1"></i> Load JSON
+                </button>
+                <InputFile id="jsonFileInput" OnChange="LoadFromJson" accept=".json" style="display:none" />
+
+                @if (_dataSet != null && _results != null)
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="SaveJson">
+                        <i class="bi bi-save me-1"></i> Save JSON
+                    </button>
+                    <button class="btn btn-danger btn-sm" @onclick="ExportPdf">
+                        <i class="bi bi-file-earmark-pdf me-1"></i> Export PDF
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════ COMPONENT DETAILS FORM ═══════════════════════ -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header section-header">
+            <i class="bi bi-clipboard-data me-2"></i> Component Details
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">Component Code <span class="text-danger">*</span></label>
+                    <input class="form-control" placeholder="e.g. COMP-001" @bind="_form.ComponentCode" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">Dimension / Feature Name</label>
+                    <input class="form-control" placeholder="e.g. Shaft Diameter" @bind="_form.DimensionName" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-semibold">Nominal Value</label>
+                    <input type="number" step="0.0001" class="form-control" placeholder="e.g. 25.000" @bind="_form.NominalValue" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-semibold">Upper Tolerance (+)</label>
+                    <div class="input-group">
+                        <span class="input-group-text text-success">+</span>
+                        <input type="number" step="0.0001" class="form-control" placeholder="0.050" @bind="_form.UpperTolerance" />
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-semibold">Lower Tolerance (−)</label>
+                    <div class="input-group">
+                        <span class="input-group-text text-danger">−</span>
+                        <input type="number" step="0.0001" class="form-control" placeholder="0.050" @bind="_form.LowerTolerance" />
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Notes</label>
+                    <input class="form-control" placeholder="Optional notes or revision" @bind="_form.Notes" />
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="text-muted small">
+                        <div>USL = @(_form.NominalValue + _form.UpperTolerance)</div>
+                        <div>LSL = @(_form.NominalValue - Math.Abs(_form.LowerTolerance))</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════ EXCEL UPLOAD ═══════════════════════ -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header section-header">
+            <i class="bi bi-file-earmark-excel me-2"></i> Data Import
+        </div>
+        <div class="card-body">
+            <div class="row align-items-center g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Upload Excel File</label>
+                    <InputFile OnChange="HandleExcelUpload" accept=".xlsx,.xls" class="form-control" />
+                    <div class="form-text">
+                        Format: <strong>Col A</strong> = Date, <strong>Col B</strong> = Sample No, <strong>Cols C+</strong> = Measurements (one column per reading).
+                        Download the template above for a ready-to-fill file.
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    @if (!string.IsNullOrEmpty(_importError))
+                    {
+                        <div class="alert alert-danger py-2 mb-0">
+                            <i class="bi bi-exclamation-triangle me-2"></i>@_importError
+                        </div>
+                    }
+                    @if (_dataSet != null)
+                    {
+                        <div class="alert alert-success py-2 mb-0">
+                            <i class="bi bi-check-circle me-2"></i>
+                            Loaded <strong>@_dataSet.Samples.Count</strong> samples
+                            with <strong>@(_dataSet.Samples.FirstOrDefault()?.Measurements.Count ?? 0)</strong> measurements each.
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Manual sample entry -->
+            <hr />
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fw-semibold">Or enter samples manually</span>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-success btn-sm" @onclick="AddManualSample">
+                        <i class="bi bi-plus-circle me-1"></i> Add Sample
+                    </button>
+                    @if (_manualSamples.Count > 0)
+                    {
+                        <button class="btn btn-success btn-sm" @onclick="ApplyManualSamples">
+                            <i class="bi bi-check2 me-1"></i> Apply Samples
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @if (_manualSamples.Count > 0)
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Sample #</th>
+                                <th>Measurements (comma-separated)</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < _manualSamples.Count; i++)
+                            {
+                                var idx = i;
+                                <tr>
+                                    <td><input type="date" class="form-control form-control-sm"
+                                        value="@_manualSamples[idx].DateStr"
+                                        @onchange="e => _manualSamples[idx].DateStr = e.Value?.ToString() ?? string.Empty" /></td>
+                                    <td><input type="number" class="form-control form-control-sm"
+                                        value="@_manualSamples[idx].SampleNo"
+                                        @onchange="e => { if (int.TryParse(e.Value?.ToString(), out int v)) _manualSamples[idx].SampleNo = v; }" /></td>
+                                    <td><input class="form-control form-control-sm" placeholder="e.g. 25.01, 24.99, 25.02"
+                                        value="@_manualSamples[idx].MeasurementsStr"
+                                        @onchange="e => _manualSamples[idx].MeasurementsStr = e.Value?.ToString() ?? string.Empty" /></td>
+                                    <td>
+                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => RemoveManualSample(idx)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- ═══════════════════════ SPC RESULTS ═══════════════════════ -->
+    @if (_dataSet != null && _results != null)
+    {
+        <!-- Statistics summary cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-md-3">
+                <div class="stat-card">
+                    <div class="stat-label">Grand Mean (X̄̄)</div>
+                    <div class="stat-value">@_results.GrandMean</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-card">
+                    <div class="stat-label">R-bar</div>
+                    <div class="stat-value">@_results.RBar</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-card">
+                    <div class="stat-label">Sigma Estimate (σ̂)</div>
+                    <div class="stat-value">@_results.SigmaEstimate</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-card @(_results.IsCapable ? "stat-card-good" : "stat-card-warn")">
+                    <div class="stat-label">Cpk</div>
+                    <div class="stat-value">@_results.Cpk</div>
+                    <div class="stat-sub">@(_results.IsCapable ? "✔ Capable" : "⚠ Review")</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="stat-card">
+                    <div class="stat-label">UCL (X̄)</div>
+                    <div class="stat-value text-danger">@_results.UCL_XBar</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="stat-card">
+                    <div class="stat-label">CL (X̄)</div>
+                    <div class="stat-value text-success">@_results.CL_XBar</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="stat-card">
+                    <div class="stat-label">LCL (X̄)</div>
+                    <div class="stat-value text-danger">@_results.LCL_XBar</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="stat-card">
+                    <div class="stat-label">UCL (R)</div>
+                    <div class="stat-value text-danger">@_results.UCL_R</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="stat-card">
+                    <div class="stat-label">Cp</div>
+                    <div class="stat-value">@_results.Cp</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="stat-card">
+                    <div class="stat-label">Ppk</div>
+                    <div class="stat-value">@_results.Ppk</div>
+                </div>
+            </div>
+        </div>
+
+        @if (_results.XBarViolations.Count > 0 || _results.RViolations.Count > 0)
+        {
+            <div class="alert alert-warning mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Control Chart Signals Detected:</strong>
+                @if (_results.XBarViolations.Count > 0)
+                {
+                    <span> X̄ chart violations at samples: @string.Join(", ", _results.XBarViolations.Select(i => _results.Labels[i])).</span>
+                }
+                @if (_results.RViolations.Count > 0)
+                {
+                    <span> R chart violations at samples: @string.Join(", ", _results.RViolations.Select(i => _results.Labels[i])).</span>
+                }
+            </div>
+        }
+
+        <!-- Charts -->
+        <div class="row g-4 mb-4">
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header section-header">
+                        <i class="bi bi-graph-up me-2"></i> X-bar Chart (Subgroup Means)
+                    </div>
+                    <div class="card-body">
+                        <canvas id="xbarChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header section-header">
+                        <i class="bi bi-bar-chart me-2"></i> R Chart (Subgroup Ranges)
+                    </div>
+                    <div class="card-body">
+                        <canvas id="rChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header section-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-table me-2"></i> Sample Data</span>
+                <span class="badge bg-secondary">@_dataSet.Samples.Count samples</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height:400px;overflow-y:auto;">
+                    <table class="table table-sm table-striped table-bordered mb-0">
+                        <thead class="table-dark sticky-top">
+                            <tr>
+                                <th>Sample #</th>
+                                <th>Date</th>
+                                @for (int m = 1; m <= (_dataSet.Samples.FirstOrDefault()?.Measurements.Count ?? 0); m++)
+                                {
+                                    <th>M@m</th>
+                                }
+                                <th>Mean (X̄)</th>
+                                <th>Range (R)</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < _dataSet.Samples.Count; i++)
+                            {
+                                var s = _dataSet.Samples[i];
+                                bool xViol = _results.XBarViolations.Contains(i);
+                                bool rViol = _results.RViolations.Contains(i);
+                                <tr class="@(xViol || rViol ? "table-warning" : "")">
+                                    <td>@s.SampleNumber</td>
+                                    <td>@(s.Date != default ? s.Date.ToString("dd/MM/yyyy") : "—")</td>
+                                    @foreach (var m in s.Measurements)
+                                    {
+                                        double usl = _form.NominalValue + _form.UpperTolerance;
+                                        double lsl = _form.NominalValue - Math.Abs(_form.LowerTolerance);
+                                        bool outSpec = m > usl || m < lsl;
+                                        <td class="@(outSpec ? "text-danger fw-bold" : "")">@m</td>
+                                    }
+                                    <td class="@(xViol ? "text-danger fw-bold" : "")">@s.Mean.ToString("F4")</td>
+                                    <td class="@(rViol ? "text-danger fw-bold" : "")">@s.Range.ToString("F4")</td>
+                                    <td>
+                                        @if (xViol || rViol)
+                                        {
+                                            <span class="badge bg-warning text-dark">⚠ OOC</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-success">✔ OK</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private SpcDataSet? _dataSet;
+    private SpcResults? _results;
+    private string? _importError;
+    private bool _chartsNeedRender;
+
+    private FormModel _form = new();
+    private List<ManualSampleRow> _manualSamples = new();
+
+    // ── Excel upload ──────────────────────────────────────────────
+    private async Task HandleExcelUpload(InputFileChangeEventArgs e)
+    {
+        _importError = null;
+        _dataSet = null;
+        _results = null;
+
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            var (samples, error) = ExcelImport.ParseExcel(ms);
+            if (error != null) { _importError = error; return; }
+
+            BuildDataSetFromSamples(samples);
+        }
+        catch (Exception ex)
+        {
+            _importError = $"Upload failed: {ex.Message}";
+        }
+    }
+
+    // ── Manual entry ──────────────────────────────────────────────
+    private void AddManualSample()
+    {
+        _manualSamples.Add(new ManualSampleRow
+        {
+            SampleNo = _manualSamples.Count + 1,
+            DateStr = DateTime.Today.ToString("yyyy-MM-dd"),
+        });
+    }
+
+    private void RemoveManualSample(int index) => _manualSamples.RemoveAt(index);
+
+    private void ApplyManualSamples()
+    {
+        _importError = null;
+        var samples = new List<SpcSample>();
+        foreach (var row in _manualSamples)
+        {
+            var parts = row.MeasurementsStr
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var measurements = parts
+                .Select(p => double.TryParse(p, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out double v) ? (double?)v : null)
+                .Where(v => v.HasValue).Select(v => v!.Value).ToList();
+
+            if (measurements.Count == 0) continue;
+
+            DateTime.TryParse(row.DateStr, out var date);
+            samples.Add(new SpcSample { Date = date, SampleNumber = row.SampleNo, Measurements = measurements });
+        }
+
+        if (samples.Count == 0) { _importError = "No valid samples entered."; return; }
+        BuildDataSetFromSamples(samples);
+    }
+
+    // ── Build dataset + calculate ─────────────────────────────────
+    private void BuildDataSetFromSamples(List<SpcSample> samples)
+    {
+        _dataSet = new SpcDataSet
+        {
+            ComponentCode = _form.ComponentCode,
+            DimensionName = _form.DimensionName,
+            NominalValue = _form.NominalValue,
+            UpperTolerance = _form.UpperTolerance,
+            LowerTolerance = _form.LowerTolerance,
+            Notes = _form.Notes,
+            CreatedDate = DateTime.Now,
+            Samples = samples,
+        };
+        _results = SpcCalc.Calculate(_dataSet);
+        _chartsNeedRender = true;
+    }
+
+    // ── JSON save/load ────────────────────────────────────────────
+    private async Task SaveJson()
+    {
+        if (_dataSet == null) return;
+        var json = System.Text.Json.JsonSerializer.Serialize(_dataSet,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        string filename = $"SPC_{_dataSet.ComponentCode}_{DateTime.Now:yyyyMMdd_HHmm}.json";
+        await JS.InvokeVoidAsync("spcInterop.downloadFile", json, filename, "application/json");
+    }
+
+    private async Task TriggerLoadJson()
+    {
+        await JS.InvokeVoidAsync("spcInterop.triggerFileInput", "jsonFileInput");
+    }
+
+    private async Task LoadFromJson(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            var loaded = await System.Text.Json.JsonSerializer.DeserializeAsync<SpcDataSet>(stream);
+            if (loaded == null) { _importError = "Invalid JSON file."; return; }
+
+            _dataSet = loaded;
+            _form = new FormModel
+            {
+                ComponentCode = loaded.ComponentCode,
+                DimensionName = loaded.DimensionName,
+                NominalValue = loaded.NominalValue,
+                UpperTolerance = loaded.UpperTolerance,
+                LowerTolerance = loaded.LowerTolerance,
+                Notes = loaded.Notes,
+            };
+            _results = SpcCalc.Calculate(_dataSet);
+            _importError = null;
+            _chartsNeedRender = true;
+        }
+        catch (Exception ex)
+        {
+            _importError = $"Failed to load JSON: {ex.Message}";
+        }
+    }
+
+    // ── Template download ─────────────────────────────────────────
+    private async Task DownloadTemplate()
+    {
+        var bytes = ExcelImport.GenerateTemplate();
+        await JS.InvokeVoidAsync("spcInterop.downloadBytes", bytes, "SPC_Template.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    // ── PDF export ────────────────────────────────────────────────
+    private async Task ExportPdf()
+    {
+        string filename = $"SPC_{_form.ComponentCode}_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+        await JS.InvokeVoidAsync("spcInterop.exportPdf", filename);
+    }
+
+    // ── Lifecycle: render charts after DOM is ready ───────────────
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_chartsNeedRender && _results != null && _dataSet != null)
+        {
+            _chartsNeedRender = false;
+            double usl = _form.NominalValue + _form.UpperTolerance;
+            double lsl = _form.NominalValue - Math.Abs(_form.LowerTolerance);
+
+            await JS.InvokeVoidAsync("spcInterop.createXBarChart", "xbarChart",
+                new
+                {
+                    labels = _results.Labels,
+                    values = _results.SubgroupMeans,
+                    ucl = _results.UCL_XBar,
+                    lcl = _results.LCL_XBar,
+                    center = _results.CL_XBar,
+                    usl,
+                    lsl,
+                    violations = _results.XBarViolations,
+                    componentCode = _dataSet.ComponentCode,
+                    dimensionName = _dataSet.DimensionName,
+                });
+
+            await JS.InvokeVoidAsync("spcInterop.createRChart", "rChart",
+                new
+                {
+                    labels = _results.Labels,
+                    values = _results.SubgroupRanges,
+                    ucl = _results.UCL_R,
+                    lcl = _results.LCL_R,
+                    rBar = _results.CL_R,
+                    violations = _results.RViolations,
+                });
+        }
+    }
+
+    // ── Inner types ───────────────────────────────────────────────
+    private class FormModel
+    {
+        public string ComponentCode { get; set; } = string.Empty;
+        public string DimensionName { get; set; } = string.Empty;
+        public double NominalValue { get; set; }
+        public double UpperTolerance { get; set; }
+        public double LowerTolerance { get; set; }
+        public string Notes { get; set; } = string.Empty;
+    }
+
+    private class ManualSampleRow
+    {
+        public string DateStr { get; set; } = string.Empty;
+        public int SampleNo { get; set; }
+        public string MeasurementsStr { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,9 @@
+## .NET gitignore
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+*.log
+wwwroot/lib/

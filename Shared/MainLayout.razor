@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+
+<div class="app-wrapper">
+    <header class="app-header">
+        <div class="header-inner">
+            <div class="brand">
+                <span class="brand-icon">📊</span>
+                <span class="brand-name">SPC Chart Manager</span>
+            </div>
+            <nav class="header-nav">
+                <a href="/" class="nav-link">Home</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="app-main">
+        @Body
+    </main>
+
+    <footer class="app-footer">
+        <span>SPC Chart Manager &copy; @DateTime.Now.Year</span>
+    </footer>
+</div>
